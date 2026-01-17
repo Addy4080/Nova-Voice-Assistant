@@ -1,43 +1,22 @@
 import speech_recognition as sr
 import webbrowser
-import asyncio
-import edge_tts
-import os
-import pygame
-import time
+import keyboard
+
 from musicLibrary import getSongLink
 from newsLibrary import get_news_titles
 from assistant_actions import send_whatsapp_message, start_work_mode, start_movie_mode
+from sound_utils import speak, play_beep, play_stop_beep
 
-def speak(text):
-    print("Nova says:", text)
+r = sr.Recognizer()
+listening = False
+WAKE_WORDS = ["nova", "noa", "nava", "nover"]
 
-    async def _speak():
-        communicate = edge_tts.Communicate(
-            text=text,
-            voice="en-GB-RyanNeural"
-        )
-        await communicate.save("temp/Nova.mp3")
-
-    loop = asyncio.new_event_loop()
-    asyncio.set_event_loop(loop)
-    loop.run_until_complete(_speak())
-    loop.close()
-
-    pygame.mixer.init()
-    pygame.mixer.music.load("temp/Nova.mp3")
-    pygame.mixer.music.play()
-
-    while pygame.mixer.music.get_busy():
-        time.sleep(0.1)
-
-    pygame.mixer.quit()
-    os.remove("temp/Nova.mp3")
 
 def takeCommand():
     with sr.Microphone() as source:
-        audio = r.listen(source)
-        return r.recognize_google(audio)
+        r.adjust_for_ambient_noise(source, duration=0.4)
+        audio = r.listen(source, timeout=5, phrase_time_limit=6)
+        return r.recognize_google(audio, language="en-IN")
 
 
 def processCommand(c):
@@ -88,30 +67,52 @@ def processCommand(c):
     else:
         speak("Sorry, I didn't understand that command")
 
+def on_ptt_press(event):
+    global listening
+
+    if listening:
+        return
+
+    listening = True
+    play_beep()
+    print("PTT started")
+
+    try:
+        with sr.Microphone() as source:
+            r.adjust_for_ambient_noise(source, duration=0.4)
+            audio = r.listen(source, timeout=4, phrase_time_limit=3)
+
+        word = r.recognize_google(audio, language="en-IN").lower()
+        print("Heard wake word:", word)
+
+        if any(w in word for w in WAKE_WORDS):
+            speak("Yes Sir")
+
+            with sr.Microphone() as source:
+                r.adjust_for_ambient_noise(source, duration=0.4)
+                audio = r.listen(source, timeout=6, phrase_time_limit=10)
+
+            command = r.recognize_google(audio, language="en-IN")
+            processCommand(command)
+
+    except Exception as e:
+        print("Error:", e)
+
+def on_ptt_release(event):
+    global listening
+
+    if listening:
+        listening = False
+        play_stop_beep()
+        print("PTT stopped")
+
 
 if __name__ == "__main__":
-    speak("Initializing Nova....")
-    
-    r = sr.Recognizer()
-    
-    while True:
-        print("recognizing...")
-        try:
-            with sr.Microphone() as source:
-                print("Listening...")
-                audio = r.listen(source, timeout=4, phrase_time_limit=20)
+    speak("Initializing Nova...")
 
-            word = r.recognize_google(audio)
+    keyboard.on_press_key("f8", on_ptt_press)
+    keyboard.on_release_key("f8", on_ptt_release)
 
-            if "nova" in word.lower():
-                speak("Yes Sir")
+    keyboard.wait()  
 
-                with sr.Microphone() as source:
-                    print("Nova Active...")
-                    audio = r.listen(source)
-
-                command = r.recognize_google(audio)
-                processCommand(command)
-
-        except Exception as e:
-            print("Error;", e)
+   
